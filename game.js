@@ -6,6 +6,10 @@ const HEIGHT = canvas.height;
 const PITCH = { x: 60, y: 40, w: WIDTH - 120, h: HEIGHT - 80 };
 const GOAL_H = 130;
 const DT = 1 / 60;
+const BALL_OWNER_OFFSET = 14;
+const BALL_DRAG = 0.985;
+const AI_TACKLE_RANGE = 22;
+const USER_TACKLE_RANGE = 25;
 
 const keys = new Set();
 window.addEventListener('keydown', (e) => {
@@ -33,8 +37,8 @@ class Ball {
   update() {
     if (this.owner) {
       const o = this.owner;
-      this.x = o.x + Math.cos(o.angle) * 16;
-      this.y = o.y + Math.sin(o.angle) * 16;
+      this.x = o.x + Math.cos(o.angle) * BALL_OWNER_OFFSET;
+      this.y = o.y + Math.sin(o.angle) * BALL_OWNER_OFFSET;
       this.vx = 0;
       this.vy = 0;
       return;
@@ -42,8 +46,8 @@ class Ball {
 
     this.x += this.vx * DT;
     this.y += this.vy * DT;
-    this.vx *= 0.985;
-    this.vy *= 0.985;
+    this.vx *= BALL_DRAG;
+    this.vy *= BALL_DRAG;
 
     if (this.y < PITCH.y) {
       this.y = PITCH.y;
@@ -69,40 +73,45 @@ class Ball {
 }
 
 class Player {
-  constructor(team, x, y, role, controlled = false) {
+  constructor(team, x, y, role, number) {
     this.team = team;
     this.homeX = x;
     this.homeY = y;
     this.x = x;
     this.y = y;
     this.role = role;
-    this.controlled = controlled;
-    this.radius = 11;
+    this.number = number;
+    this.radius = 8;
     this.angle = 0;
-    this.speed = 155;
+    this.speed = role === 'goleiro' ? 128 : 145;
     this.stamina = 100;
     this.mood = 1;
     this.cooldown = 0;
   }
 
-  update(ball, isUserControlled = false) {
+  update(ball, controlled = false) {
     this.cooldown = Math.max(0, this.cooldown - DT);
-    if (isUserControlled) this.updateUser(ball);
+
+    if (controlled) this.updateControlled(ball);
     else this.updateAI(ball);
 
-    this.x = clamp(this.x, PITCH.x + 4, PITCH.x + PITCH.w - 4);
-    this.y = clamp(this.y, PITCH.y + 4, PITCH.y + PITCH.h - 4);
+    this.x = clamp(this.x, PITCH.x + 2, PITCH.x + PITCH.w - 2);
+    this.y = clamp(this.y, PITCH.y + 2, PITCH.y + PITCH.h - 2);
 
-    if (!keys.has('shift')) this.stamina = clamp(this.stamina + 11 * DT, 30, 100);
+    if (!keys.has('shift')) this.stamina = clamp(this.stamina + 10 * DT, 30, 100);
 
-    if (!ball.owner && dist(this, ball) < this.radius + 10 && this.cooldown <= 0) {
+    if (!ball.owner && dist(this, ball) < this.radius + 8 && this.cooldown <= 0) {
       ball.owner = this;
     }
   }
 
-  updateUser(ball) {
-    const up = keys.has('w'), down = keys.has('s'), left = keys.has('a'), right = keys.has('d');
+  updateControlled(ball) {
+    const up = keys.has('arrowup') || keys.has('w');
+    const down = keys.has('arrowdown') || keys.has('s');
+    const left = keys.has('arrowleft') || keys.has('a');
+    const right = keys.has('arrowright') || keys.has('d');
     const sprint = keys.has('shift') && this.stamina > 0;
+
     let dx = (right ? 1 : 0) - (left ? 1 : 0);
     let dy = (down ? 1 : 0) - (up ? 1 : 0);
 
@@ -112,9 +121,9 @@ class Player {
       dy /= len;
       this.angle = Math.atan2(dy, dx);
 
-      let speed = this.speed * (0.85 + 0.15 * this.mood);
+      let speed = this.speed * (0.86 + 0.14 * this.mood);
       if (sprint) {
-        speed *= 1.35;
+        speed *= 1.34;
         this.stamina = clamp(this.stamina - 26 * DT, 0, 100);
       }
 
@@ -127,33 +136,39 @@ class Player {
   }
 
   updateAI(ball) {
+    const teamHasBall = ball.owner?.team === this.team;
     const defensiveBias = this.team.style === 'compacta' ? 1.5 : 1;
+
     let tx = this.homeX;
     let ty = this.homeY;
 
-    const teamHasBall = ball.owner?.team === this.team;
     if (teamHasBall) {
-      tx += this.team.direction * 40;
-      if (this.role === 'ataque') tx += this.team.direction * 90;
+      tx += this.team.direction * (this.role === 'ataque' ? 86 : 28);
     } else {
+      tx -= this.team.direction * 24 * defensiveBias;
       if (this.role !== 'goleiro') {
-        tx -= this.team.direction * 30 * defensiveBias;
-      }
-      if (!ball.owner || ball.owner.team !== this.team) {
         const d = dist(this, ball);
-        if (d < 180 && this.role !== 'goleiro') {
+        if (d < 175) {
           tx = ball.x;
           ty = ball.y;
         }
       }
     }
 
+    if (this.role === 'goleiro') {
+      tx = this.team.direction > 0 ? PITCH.x + 28 : PITCH.x + PITCH.w - 28;
+      ty = clamp(ball.y, HEIGHT / 2 - 70, HEIGHT / 2 + 70);
+      if (dist(this, ball) < 36 && (!ball.owner || ball.owner.team !== this.team)) {
+        ball.owner = this;
+      }
+    }
+
     const dx = tx - this.x;
     const dy = ty - this.y;
     const len = Math.hypot(dx, dy);
-    if (len > 3) {
+    if (len > 2) {
       this.angle = Math.atan2(dy, dx);
-      const aiSpeed = this.speed * 0.88;
+      const aiSpeed = this.speed * 0.86;
       this.x += (dx / len) * aiSpeed * DT;
       this.y += (dy / len) * aiSpeed * DT;
     }
@@ -162,62 +177,64 @@ class Player {
       const toGoalX = this.team.direction > 0 ? PITCH.x + PITCH.w : PITCH.x;
       const goalDist = Math.abs(toGoalX - this.x);
 
-      if (goalDist < 220 && Math.random() < 0.05) {
-        this.shoot(ball, true);
-      } else if (Math.random() < 0.03) {
-        this.passOrTackle(ball, true);
-      }
-    } else if (ball.owner && ball.owner.team !== this.team && dist(this, ball.owner) < 24 && this.cooldown <= 0) {
+      if (goalDist < 190 && Math.random() < 0.06) this.shoot(ball, true);
+      else if (Math.random() < 0.04) this.passOrTackle(ball, true);
+    } else if (ball.owner && ball.owner.team !== this.team && dist(this, ball.owner) < AI_TACKLE_RANGE && this.cooldown <= 0) {
       this.passOrTackle(ball, true);
     }
   }
 
   passOrTackle(ball, ai = false) {
-    this.cooldown = ai ? 0.35 : 0.25;
+    this.cooldown = ai ? 0.34 : 0.22;
+
     if (ball.owner === this) {
       const mates = this.team.players.filter(p => p !== this);
-      let best = mates[0];
+      let bestMate = mates[0];
       let bestScore = -Infinity;
-      for (const m of mates) {
-        const forward = (m.x - this.x) * this.team.direction;
-        const spacing = 140 - Math.abs(m.y - this.y);
-        const score = forward * 1.3 + spacing;
+
+      for (const mate of mates) {
+        const forward = (mate.x - this.x) * this.team.direction;
+        const lane = 150 - Math.abs(mate.y - this.y);
+        const pressure = this.team.game.getNearestOpponentDist(mate, this.team);
+        const score = forward * 1.35 + lane + pressure * 0.25;
         if (score > bestScore) {
           bestScore = score;
-          best = m;
+          bestMate = mate;
         }
       }
 
-      const angle = Math.atan2(best.y - this.y, best.x - this.x);
-      const power = 320 + Math.random() * 120;
+      const angle = Math.atan2(bestMate.y - this.y, bestMate.x - this.x);
+      const power = 300 + Math.random() * 120;
       ball.kick(angle, power);
       this.team.game.lastAction = `${this.team.name}: passe`;
+      return;
+    }
+
+    const target = ball.owner;
+    if (!target || target.team === this.team) return;
+    if (dist(this, target) > USER_TACKLE_RANGE) return;
+
+    if (Math.random() < 0.56 + this.mood * 0.22) {
+      ball.owner = this;
+      this.team.game.lastAction = `${this.team.name}: desarme`;
+      this.team.game.emotionPulse(this.team, 0.06);
     } else {
-      const target = ball.owner;
-      if (!target || target.team === this.team) return;
-      if (dist(this, target) < 28) {
-        if (Math.random() < 0.58 + 0.2 * this.mood) {
-          ball.owner = this;
-          this.team.game.lastAction = `${this.team.name}: bote certo`;
-          this.team.game.emotionPulse(this.team, 0.08);
-        } else {
-          this.team.game.lastAction = `${this.team.name}: bote falhou`;
-          this.team.game.emotionPulse(this.team, -0.03);
-        }
-      }
+      this.team.game.lastAction = `${this.team.name}: errou o bote`;
+      this.team.game.emotionPulse(this.team, -0.03);
     }
   }
 
   shoot(ball, ai = false) {
     if (ball.owner !== this) return;
-    this.cooldown = ai ? 0.5 : 0.35;
-    const gx = this.team.direction > 0 ? PITCH.x + PITCH.w + 8 : PITCH.x - 8;
-    const gy = HEIGHT / 2 + (Math.random() - 0.5) * 80;
+    this.cooldown = ai ? 0.45 : 0.32;
+
+    const gx = this.team.direction > 0 ? PITCH.x + PITCH.w + 10 : PITCH.x - 10;
+    const gy = HEIGHT / 2 + (Math.random() - 0.5) * 82;
     const angle = Math.atan2(gy - this.y, gx - this.x);
-    const fatiguePenalty = (100 - this.stamina) * 1.7;
-    const power = clamp(520 - fatiguePenalty + Math.random() * 100, 290, 620);
+    const fatiguePenalty = (100 - this.stamina) * 1.65;
+    const power = clamp(510 - fatiguePenalty + Math.random() * 105, 280, 620);
     ball.kick(angle, power);
-    this.team.game.lastAction = `${this.team.name}: finalização`;
+    this.team.game.lastAction = `${this.team.name}: chute`;
   }
 
   render(selected = false) {
@@ -227,32 +244,39 @@ class Player {
     ctx.fill();
 
     if (selected) {
-      ctx.strokeStyle = '#fef08a';
+      ctx.strokeStyle = '#fde047';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.arc(this.x, this.y, this.radius + 4, 0, Math.PI * 2);
       ctx.stroke();
     }
+
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = 'bold 8px Inter, Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(this.number.toString(), this.x, this.y + 3);
   }
 }
 
 class Team {
-  constructor(game, name, color, direction, style, layout) {
+  constructor(game, name, color, direction, style, formation) {
     this.game = game;
     this.name = name;
     this.color = color;
     this.direction = direction;
     this.style = style;
     this.score = 0;
-    this.players = layout.map((p, i) => new Player(this, p.x, p.y, p.role, i === 0));
+    this.players = formation.map((playerData, idx) => (
+      new Player(this, playerData.x, playerData.y, playerData.role, idx + 1)
+    ));
   }
 
   reset() {
     for (const p of this.players) {
       p.x = p.homeX;
       p.y = p.homeY;
-      p.stamina = 100;
       p.cooldown = 0;
+      p.stamina = 100;
     }
   }
 }
@@ -260,30 +284,49 @@ class Team {
 class Match {
   constructor() {
     this.time = 0;
-    this.maxTime = 180;
+    this.maxTime = 240;
     this.lastAction = 'Início de jogo';
 
-    const left = [
-      { x: PITCH.x + 70, y: HEIGHT / 2, role: 'goleiro' },
-      { x: PITCH.x + 220, y: HEIGHT / 2 - 120, role: 'defesa' },
-      { x: PITCH.x + 220, y: HEIGHT / 2 + 120, role: 'defesa' },
-      { x: PITCH.x + 390, y: HEIGHT / 2 - 70, role: 'meio' },
-      { x: PITCH.x + 430, y: HEIGHT / 2 + 80, role: 'ataque' },
-    ];
+    this.home = new Team(this, 'Azul', '#3b82f6', 1, 'posse', this.createFormation(true));
+    this.away = new Team(this, 'Vermelho', '#ef4444', -1, 'compacta', this.createFormation(false));
 
-    const right = left.map(p => ({ ...p, x: WIDTH - p.x }));
-
-    this.home = new Team(this, 'Azul', '#60a5fa', 1, 'posse', left);
-    this.away = new Team(this, 'Vermelho', '#f87171', -1, 'compacta', right);
     this.ball = new Ball();
-
     this.userTeam = this.home;
-    this.selectedIndex = 2;
-
-    this.coolKey = 0;
     this.finished = false;
 
     this.centerKickoff();
+  }
+
+  createFormation(isLeftSide) {
+    const sx = isLeftSide ? 1 : -1;
+    const anchor = isLeftSide ? PITCH.x : PITCH.x + PITCH.w;
+    const x = (offset) => anchor + sx * offset;
+
+    return [
+      { x: x(28), y: HEIGHT / 2, role: 'goleiro' },
+
+      { x: x(155), y: HEIGHT / 2 - 170, role: 'defesa' },
+      { x: x(170), y: HEIGHT / 2 - 65, role: 'defesa' },
+      { x: x(170), y: HEIGHT / 2 + 65, role: 'defesa' },
+      { x: x(155), y: HEIGHT / 2 + 170, role: 'defesa' },
+
+      { x: x(305), y: HEIGHT / 2 - 110, role: 'meio' },
+      { x: x(330), y: HEIGHT / 2, role: 'meio' },
+      { x: x(305), y: HEIGHT / 2 + 110, role: 'meio' },
+
+      { x: x(460), y: HEIGHT / 2 - 130, role: 'ataque' },
+      { x: x(500), y: HEIGHT / 2, role: 'ataque' },
+      { x: x(460), y: HEIGHT / 2 + 130, role: 'ataque' },
+    ];
+  }
+
+  getNearestOpponentDist(player, team) {
+    const opponents = team === this.home ? this.away.players : this.home.players;
+    let minD = Infinity;
+    for (const op of opponents) {
+      minD = Math.min(minD, dist(player, op));
+    }
+    return minD;
   }
 
   emotionPulse(team, delta) {
@@ -296,8 +339,22 @@ class Match {
     this.home.reset();
     this.away.reset();
     this.ball.reset();
-    const kicker = Math.random() < 0.5 ? this.home.players[3] : this.away.players[3];
-    this.ball.owner = kicker;
+    this.ball.owner = Math.random() < 0.5 ? this.home.players[9] : this.away.players[9];
+  }
+
+  getControlledPlayer() {
+    if (this.ball.owner && this.ball.owner.team === this.userTeam) return this.ball.owner;
+
+    let nearest = this.userTeam.players[0];
+    let best = dist(nearest, this.ball);
+    for (const p of this.userTeam.players) {
+      const d = dist(p, this.ball);
+      if (d < best) {
+        best = d;
+        nearest = p;
+      }
+    }
+    return nearest;
   }
 
   update() {
@@ -310,15 +367,8 @@ class Match {
       this.lastAction = 'Fim de jogo';
     }
 
-    this.coolKey = Math.max(0, this.coolKey - DT);
-    if (keys.has('l') && this.coolKey <= 0) {
-      this.selectedIndex = (this.selectedIndex + 1) % this.userTeam.players.length;
-      this.coolKey = 0.25;
-    }
-
-    const selected = this.userTeam.players[this.selectedIndex];
-
-    for (const p of this.home.players) p.update(this.ball, p === selected);
+    const controlled = this.getControlledPlayer();
+    for (const p of this.home.players) p.update(this.ball, p === controlled);
     for (const p of this.away.players) p.update(this.ball, false);
 
     this.ball.update();
@@ -329,17 +379,17 @@ class Match {
   dynamicEmotion() {
     const diff = this.home.score - this.away.score;
     if (diff > 0) {
-      this.emotionPulse(this.home, 0.0008);
-      this.emotionPulse(this.away, -0.0006);
+      this.emotionPulse(this.home, 0.0007);
+      this.emotionPulse(this.away, -0.0005);
     } else if (diff < 0) {
-      this.emotionPulse(this.away, 0.0008);
-      this.emotionPulse(this.home, -0.0006);
+      this.emotionPulse(this.away, 0.0007);
+      this.emotionPulse(this.home, -0.0005);
     }
   }
 
   checkGoal() {
-    const isGoalY = this.ball.y > HEIGHT / 2 - GOAL_H / 2 && this.ball.y < HEIGHT / 2 + GOAL_H / 2;
-    if (!isGoalY) return;
+    const inGoalY = this.ball.y > HEIGHT / 2 - GOAL_H / 2 && this.ball.y < HEIGHT / 2 + GOAL_H / 2;
+    if (!inGoalY) return;
 
     if (this.ball.x < PITCH.x - 6) {
       this.away.score += 1;
@@ -354,9 +404,9 @@ class Match {
 
   restart() {
     this.time = 0;
+    this.finished = false;
     this.home.score = 0;
     this.away.score = 0;
-    this.finished = false;
     this.lastAction = 'Reinício';
     this.centerKickoff();
   }
@@ -375,16 +425,18 @@ class Match {
     ctx.strokeStyle = '#e5e7eb';
     ctx.lineWidth = 2;
     ctx.strokeRect(PITCH.x, PITCH.y, PITCH.w, PITCH.h);
+
     ctx.beginPath();
     ctx.moveTo(WIDTH / 2, PITCH.y);
     ctx.lineTo(WIDTH / 2, PITCH.y + PITCH.h);
     ctx.stroke();
 
     ctx.beginPath();
-    ctx.arc(WIDTH / 2, HEIGHT / 2, 74, 0, Math.PI * 2);
+    ctx.arc(WIDTH / 2, HEIGHT / 2, 72, 0, Math.PI * 2);
     ctx.stroke();
 
-    const boxW = 150, boxH = 250;
+    const boxW = 150;
+    const boxH = 250;
     ctx.strokeRect(PITCH.x, HEIGHT / 2 - boxH / 2, boxW, boxH);
     ctx.strokeRect(PITCH.x + PITCH.w - boxW, HEIGHT / 2 - boxH / 2, boxW, boxH);
 
@@ -395,46 +447,47 @@ class Match {
   renderHUD() {
     const min = Math.floor(this.time / 60);
     const sec = Math.floor(this.time % 60).toString().padStart(2, '0');
-    const selected = this.userTeam.players[this.selectedIndex];
+    const controlled = this.getControlledPlayer();
 
-    ctx.fillStyle = 'rgba(15,23,42,0.72)';
-    ctx.fillRect(12, 10, 380, 96);
+    ctx.fillStyle = 'rgba(15,23,42,0.75)';
+    ctx.fillRect(12, 10, 430, 100);
     ctx.fillStyle = '#f8fafc';
-    ctx.font = 'bold 26px Inter, Arial';
-    ctx.fillText(`${this.home.name} ${this.home.score} x ${this.away.score} ${this.away.name}`, 22, 44);
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 25px Inter, Arial';
+    ctx.fillText(`${this.home.name} ${this.home.score} x ${this.away.score} ${this.away.name}`, 22, 42);
+    ctx.font = '17px Inter, Arial';
+    ctx.fillText(`Tempo: ${min}:${sec} / 4:00`, 22, 67);
+    ctx.fillText(`Ação: ${this.lastAction}`, 22, 90);
 
-    ctx.font = '18px Inter, Arial';
-    ctx.fillText(`Tempo: ${min}:${sec} / 3:00`, 22, 70);
-    ctx.fillText(`Última ação: ${this.lastAction}`, 22, 95);
-
-    ctx.fillStyle = 'rgba(15,23,42,0.72)';
-    ctx.fillRect(WIDTH - 250, 10, 238, 95);
+    ctx.fillStyle = 'rgba(15,23,42,0.75)';
+    ctx.fillRect(WIDTH - 280, 10, 268, 100);
     ctx.fillStyle = '#f8fafc';
-    ctx.fillText(`Stamina: ${Math.round(selected.stamina)}%`, WIDTH - 240, 42);
-    ctx.fillText(`Emoção: ${selected.mood.toFixed(2)}`, WIDTH - 240, 66);
-    ctx.fillText(`Estilo IA: ${this.away.style}`, WIDTH - 240, 90);
+    ctx.fillText(`Controlado: #${controlled.number} (${controlled.role})`, WIDTH - 270, 42);
+    ctx.fillText(`Stamina: ${Math.round(controlled.stamina)}%`, WIDTH - 270, 67);
+    ctx.fillText(`Emoção: ${controlled.mood.toFixed(2)}`, WIDTH - 270, 90);
 
     if (this.finished) {
       ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
       ctx.fillRect(0, 0, WIDTH, HEIGHT);
       ctx.fillStyle = '#f8fafc';
       ctx.font = 'bold 52px Inter, Arial';
-      ctx.fillText('FIM DE JOGO', WIDTH / 2 - 180, HEIGHT / 2 - 8);
+      ctx.textAlign = 'center';
+      ctx.fillText('FIM DE JOGO', WIDTH / 2, HEIGHT / 2 - 8);
       ctx.font = '24px Inter, Arial';
-      ctx.fillText('Pressione R para jogar novamente', WIDTH / 2 - 185, HEIGHT / 2 + 32);
+      ctx.fillText('Pressione R para jogar novamente', WIDTH / 2, HEIGHT / 2 + 30);
     }
   }
 
   render() {
     this.renderPitch();
 
-    const selected = this.userTeam.players[this.selectedIndex];
-    this.home.players.forEach(p => p.render(p === selected));
-    this.away.players.forEach(p => p.render(false));
+    const controlled = this.getControlledPlayer();
+    this.home.players.forEach((p) => p.render(p === controlled));
+    this.away.players.forEach((p) => p.render(false));
 
     ctx.beginPath();
-    ctx.fillStyle = '#f8fafc';
-    ctx.arc(this.ball.x, this.ball.y, 6, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.arc(this.ball.x, this.ball.y, 5.5, 0, Math.PI * 2);
     ctx.fill();
 
     this.renderHUD();

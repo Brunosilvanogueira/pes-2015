@@ -6,6 +6,10 @@ const HEIGHT = canvas.height;
 const PITCH = { x: 60, y: 40, w: WIDTH - 120, h: HEIGHT - 80 };
 const GOAL_H = 130;
 const DT = 1 / 60;
+const BALL_OWNER_OFFSET = 14;
+const BALL_DRAG = 0.985;
+const AI_TACKLE_RANGE = 22;
+const USER_TACKLE_RANGE = 25;
 
 const keys = new Set();
 window.addEventListener('keydown', (e) => {
@@ -33,8 +37,8 @@ class Ball {
   update() {
     if (this.owner) {
       const o = this.owner;
-      this.x = o.x + Math.cos(o.angle) * 14;
-      this.y = o.y + Math.sin(o.angle) * 14;
+      this.x = o.x + Math.cos(o.angle) * BALL_OWNER_OFFSET;
+      this.y = o.y + Math.sin(o.angle) * BALL_OWNER_OFFSET;
       this.vx = 0;
       this.vy = 0;
       return;
@@ -42,8 +46,8 @@ class Ball {
 
     this.x += this.vx * DT;
     this.y += this.vy * DT;
-    this.vx *= 0.985;
-    this.vy *= 0.985;
+    this.vx *= BALL_DRAG;
+    this.vy *= BALL_DRAG;
 
     if (this.y < PITCH.y) {
       this.y = PITCH.y;
@@ -175,7 +179,7 @@ class Player {
 
       if (goalDist < 190 && Math.random() < 0.06) this.shoot(ball, true);
       else if (Math.random() < 0.04) this.passOrTackle(ball, true);
-    } else if (ball.owner && ball.owner.team !== this.team && dist(this, ball.owner) < 22 && this.cooldown <= 0) {
+    } else if (ball.owner && ball.owner.team !== this.team && dist(this, ball.owner) < AI_TACKLE_RANGE && this.cooldown <= 0) {
       this.passOrTackle(ball, true);
     }
   }
@@ -208,7 +212,7 @@ class Player {
 
     const target = ball.owner;
     if (!target || target.team === this.team) return;
-    if (dist(this, target) > 25) return;
+    if (dist(this, target) > USER_TACKLE_RANGE) return;
 
     if (Math.random() < 0.56 + this.mood * 0.22) {
       ball.owner = this;

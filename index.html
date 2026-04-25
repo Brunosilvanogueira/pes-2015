@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PES Spirit 2015 - Playable Prototype</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="layout">
+    <section class="panel">
+      <h1>PES Spirit 2015</h1>
+      <p>Protótipo jogável focado em controle, ritmo e decisão tática.</p>
+      <ul>
+        <li><strong>WASD</strong>: mover jogador selecionado</li>
+        <li><strong>Shift</strong>: sprint (consome stamina)</li>
+        <li><strong>J</strong>: passe / bote defensivo</li>
+        <li><strong>K</strong>: chute</li>
+        <li><strong>L</strong>: trocar jogador</li>
+        <li><strong>R</strong>: reiniciar partida</li>
+      </ul>
+      <p class="hint">Dica: ataque pela lateral e use passe rápido para abrir espaços.</p>
+    </section>
+
+    <section class="match-wrap">
+      <canvas id="pitch" width="1120" height="640"></canvas>
+    </section>
+  </main>
+
+  <script src="game.js"></script>
+</body>
+</html>
